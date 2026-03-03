@@ -37,6 +37,7 @@ from superset.daos.semantic_layer import SemanticLayerDAO, SemanticViewDAO
 from superset.exceptions import SupersetSecurityException
 from superset.semantic_layers.models import SemanticLayer, SemanticView
 from superset.semantic_layers.registry import registry
+from superset.utils import json
 from superset.utils.decorators import on_error, transaction
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,10 @@ class UpdateSemanticLayerCommand(BaseCommand):
     def run(self) -> Model:
         self.validate()
         assert self._model
+        if isinstance(self._properties.get("configuration"), dict):
+            self._properties["configuration"] = json.dumps(
+                self._properties["configuration"]
+            )
         return SemanticLayerDAO.update(self._model, attributes=self._properties)
 
     def validate(self) -> None:
