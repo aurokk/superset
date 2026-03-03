@@ -348,8 +348,6 @@ def map_query_object(query_object: ValidatedQueryObject) -> list[SemanticQuery]:
             time_offset,
             all_dimensions,
         )
-        print(">>", filters)
-
         queries.append(
             SemanticQuery(
                 metrics=metrics,
