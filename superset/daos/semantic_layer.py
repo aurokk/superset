@@ -19,9 +19,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from superset.daos.base import BaseDAO
 from superset.extensions import db
 from superset.semantic_layers.models import SemanticLayer, SemanticView
+from superset.utils import json
 
 
 class SemanticLayerDAO(BaseDAO[SemanticLayer]):
@@ -123,18 +126,37 @@ class SemanticViewDAO(BaseDAO[SemanticView]):
         )
 
     @staticmethod
-    def validate_uniqueness(name: str, layer_uuid: str) -> bool:
+    def validate_uniqueness(
+        name: str,
+        layer_uuid: str,
+        configuration: dict[str, Any] | None = None,
+    ) -> bool:
         """
         Validate that view name is unique within semantic layer.
 
+        When *configuration* is provided, uniqueness is scoped to the
+        ``(name, layer_uuid, configuration)`` triple so the same view name
+        can exist with different runtime configurations.
+
         :param name: View name
         :param layer_uuid: UUID of the semantic layer
-        :return: True if name is unique within layer, False otherwise
+        :param configuration: Optional configuration dict for scoped uniqueness
+        :return: True if name is unique within layer (and config), False otherwise
         """
         query = db.session.query(SemanticView).filter(
             SemanticView.name == name,
             SemanticView.semantic_layer_uuid == layer_uuid,
         )
+        if configuration is not None:
+            config_str = json.dumps(configuration, sort_keys=True)
+            # Compare serialized configuration
+            for view in query.all():
+                existing_config = view.configuration
+                if isinstance(existing_config, str):
+                    existing_config = json.loads(existing_config)
+                if json.dumps(existing_config or {}, sort_keys=True) == config_str:
+                    return False
+            return True
         return not db.session.query(query.exists()).scalar()
 
     @staticmethod
