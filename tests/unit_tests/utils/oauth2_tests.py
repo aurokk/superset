@@ -23,6 +23,7 @@ from freezegun import freeze_time
 from pytest_mock import MockerFixture
 
 from superset.utils.oauth2 import (
+    get_access_token_for_database,
     get_oauth2_access_token,
     get_upstream_provider_token,
     save_user_provider_token,
@@ -214,3 +215,70 @@ def test_get_upstream_provider_token_expired_calls_refresh(
 
     assert result == "new-token"
     refresh_mock.assert_called_once_with(token, "keycloak")
+
+
+# ---- get_access_token_for_database tests ----
+
+
+def test_get_access_token_for_database_upstream_provider(
+    mocker: MockerFixture,
+) -> None:
+    """
+    Test that `get_access_token_for_database` uses the upstream provider token
+    when ``oauth2_upstream_provider`` is set in encrypted_extra.
+    """
+    database = mocker.MagicMock()
+    database.get_encrypted_extra.return_value = {
+        "oauth2_upstream_provider": "keycloak",
+    }
+
+    upstream_mock = mocker.patch(
+        "superset.utils.oauth2.get_upstream_provider_token",
+        return_value="upstream-token",
+    )
+
+    result = get_access_token_for_database(database, user_id=1)
+
+    assert result == "upstream-token"
+    upstream_mock.assert_called_once_with("keycloak", 1)
+    database.get_oauth2_config.assert_not_called()
+
+
+def test_get_access_token_for_database_db_specific_oauth2(
+    mocker: MockerFixture,
+) -> None:
+    """
+    Test that `get_access_token_for_database` falls back to database-specific
+    OAuth2 when no upstream provider is configured.
+    """
+    database = mocker.MagicMock()
+    database.get_encrypted_extra.return_value = {}
+    database.get_oauth2_config.return_value = {"id": "client-id"}
+    database.id = 42
+    database.db_engine_spec = mocker.MagicMock()
+
+    oauth2_mock = mocker.patch(
+        "superset.utils.oauth2.get_oauth2_access_token",
+        return_value="db-token",
+    )
+
+    result = get_access_token_for_database(database, user_id=1)
+
+    assert result == "db-token"
+    oauth2_mock.assert_called_once_with(
+        {"id": "client-id"}, 42, 1, database.db_engine_spec
+    )
+
+
+def test_get_access_token_for_database_no_oauth(mocker: MockerFixture) -> None:
+    """
+    Test that `get_access_token_for_database` returns None when neither upstream
+    provider nor database-specific OAuth2 is configured.
+    """
+    database = mocker.MagicMock()
+    database.get_encrypted_extra.return_value = {}
+    database.get_oauth2_config.return_value = None
+
+    result = get_access_token_for_database(database, user_id=1)
+
+    assert result is None
